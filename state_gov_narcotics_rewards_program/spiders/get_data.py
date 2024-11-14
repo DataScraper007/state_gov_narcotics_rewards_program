@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 
 import scrapy
 import pandas as pd
@@ -90,6 +91,7 @@ class GetDataSpider(scrapy.Spider):
         tag_data = self.extract_tags(response)
         data_dict.update(tag_data)
         main_content = response.xpath('//div[@class="entry-content"]/p')
+        data_dict['reward'] = self.extract_reward(response.text)
         article = ''
         for data in main_content:
             external_links = data.xpath('.//a[@class="external-link__pdf"]/@href').getall()
@@ -106,7 +108,8 @@ class GetDataSpider(scrapy.Spider):
             for match in matches:
                 key = match.group("KEY").strip()
                 value = match.group("VALUE").strip()
-
+                # if key in ['TIPS', 'WANTED']:
+                #     continue
                 # Check if there are any subsequent key-value pairs in the value
                 subsequent_keys = re.findall(r'(?P<NEW_KEY>[A-Z\s,]+):\s*(?P<NEW_VALUE>[^:]+)', value)
 
@@ -126,6 +129,9 @@ class GetDataSpider(scrapy.Spider):
                 if value == 'Unknown':
                     result[key] = 'N/A'
 
+            data_dict['contact_number'] = self.extract_phone_no(content_string)
+            data_dict['contact_email'] = self.extract_email(content_string)
+
             if not result:
                 article += content_string
                 continue
@@ -142,6 +148,36 @@ class GetDataSpider(scrapy.Spider):
         output_dict['tags'] = ' | '.join(tags)
         output_dict['tag_links'] = ' | '.join(tag_links)
         return output_dict
+
+    def extract_phone_no(self, response):
+        phone_regex = r'(\+?\d{1,3}[-\s]?)?(\(?\d{3}\)?[-\s]?)\d{3}[-\s]?\d{4}'
+        # Find all matches
+        match = re.search(phone_regex, response)
+
+        if match:
+            return match.group()
+
+    def extract_email(self, response):
+        email_regex = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+
+        # Find all email addresses
+        match = re.search(email_regex, response)
+        if match:
+            return match.group(1)
+
+    def extract_reward(self, response):
+        # Regular expression to match rewards with flexible amounts and units
+        reward_regex = r'\bREWARD.*?\$(\d+(?:\.\d+)?)\s?(MILLION|BILLION)?\b'
+
+        match = re.search(reward_regex, response)
+
+        # Check if a match was found and format it
+        if match:
+            amount = match.group(1)  # The numeric reward amount
+            unit = match.group(2)  # The unit, e.g., 'MILLION' or 'BILLION'
+            reward_value = f"${amount} {unit}" if unit else f"${amount}"
+            print(reward_value)
+            return reward_value
 
     def convert_to_date_format(self, df):
         # Remove any extraneous characters in the 'publish_date' and 'dob' columns
@@ -199,7 +235,8 @@ class GetDataSpider(scrapy.Spider):
         df = self.remove_duplicate_columns(df)
         df = self.format_aliases(df)
         df.fillna('N/A', inplace=True)
-        df.to_excel("../files/state_gov_narcotics_rewards_program.xlsx", index=False)
+        df.to_excel(f"../files/state_gov_narcotics_rewards_program_{datetime.today().strftime('%Y%m%d')}.xlsx",
+                    index=False)
 
 
 if __name__ == '__main__':
